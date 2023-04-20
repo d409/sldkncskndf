@@ -1,0 +1,263 @@
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import (
+    Updater,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    CallbackQueryHandler,
+    CallbackContext,
+    ConversationHandler
+)
+
+from database import create_user, get_user_profile, disable_user_profile, add_service
+import logging
+from database import create_tables
+TOKEN = "5741958407:AAFlowMVLrQM2brVpCMDx9yRNs27sMy3XsE"
+
+create_tables()
+
+
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+logger.info("Bot started")
+
+TITLE, DESCRIPTION, CITY, CATEGORY, CONTACT = range(5)
+
+def create_service_start(update: Update, context: CallbackContext):
+    update.message.reply_text("Введите название услуги:")
+    return TITLE
+
+def create_service_title(update: Update, context: CallbackContext):
+    title = update.message.text
+    context.user_data["title"] = title
+    update.message.reply_text("Введите описание услуги:")
+    return DESCRIPTION
+
+def create_service_description(update: Update, context: CallbackContext):
+    description = update.message.text
+    context.user_data["description"] = description
+    update.message.reply_text("Введите город услуги:")
+    return CITY
+
+def create_service_city(update: Update, context: CallbackContext):
+    city = update.message.text
+    context.user_data["city"] = city
+    update.message.reply_text("Выберите категорию услуги:", reply_markup=categories_keyboard())
+    return CATEGORY
+
+def create_service_category(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+    category = query.data.split('_')[-1]
+    context.user_data["category"] = category
+    query.edit_message_text("Введите контактные данные:")
+    return CONTACT
+
+def create_service_contact(update: Update, context: CallbackContext):
+    contact = update.message.text
+    context.user_data["contact"] = contact
+
+    # Здесь добавим код для сохранения услуги в базе данных
+    user_id = update.message.from_user.id
+    title = context.user_data["title"]
+    description = context.user_data["description"]
+    city = context.user_data["city"]
+    category = context.user_data["category"]
+
+    # Ваша функция для добавления услуги в базу данных
+    add_service(user_id, title, description, city, category, contact)
+
+    update.message.reply_text("Услуга успешно создана!")
+
+    return ConversationHandler.END
+
+def create_service_cancel(update: Update, context: CallbackContext):
+    update.message.reply_text("Создание услуги отменено.")
+    return ConversationHandler.END
+
+create_service_handler = ConversationHandler(
+    entry_points=[CommandHandler("create_service", create_service_start)],
+    states={
+        TITLE: [MessageHandler(filters.Text, create_service_title)],
+        DESCRIPTION: [MessageHandler(filters.Text, create_service_description)],
+        CITY: [MessageHandler(filters.Text, create_service_city)],
+        CATEGORY: [CallbackQueryHandler(create_service_category, pattern="^create_service_category")],
+        CONTACT: [MessageHandler(filters.Text, create_service_contact)],
+    },
+    fallbacks=[CommandHandler("cancel", create_service_cancel)],
+)
+
+
+def my_profile(update: Update, context: CallbackContext):
+    user_id = update.message.from_user.id
+    # Ваша функция для получения профиля пользователя из базы данных
+    profile = get_user_profile(user_id)
+
+    if profile:
+        profile_info = f"Название услуги: {profile[2]}\nОписание: {profile[3]}\nГород: {profile[4]}\nКатегория: {profile[5]}\nКонтакт: {profile[6]}\n"
+
+        keyboard = [
+            [
+                InlineKeyboardButton("Редактировать", callback_data="my_profile_edit"),
+                InlineKeyboardButton("Отключить", callback_data="my_profile_disable"),
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        update.message.reply_text(profile_info, reply_markup=reply_markup)
+    else:
+        update.message.reply_text("Вы еще не создали услугу. Создайте услугу с помощью команды /create_service.")
+
+def handle_my_profile(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+
+    data = query.data.split('_')
+    action = data[1]
+
+    if action == "edit":
+        # Реализуйте функцию для редактирования профиля
+        pass
+    elif action == "disable":
+        user_id = query.from_user.id
+        # Ваша функция для отключения профиля пользователя
+        disable_user_profile(user_id)
+        query.edit_message_text("Профиль успешно отключен.")
+
+
+
+def about_bot(update: Update, context: CallbackContext):
+    about_text = """
+Бот для поиска и создания услуг. Вы можете искать услуги по категориям и городам, а также создавать свою услугу и редактировать свой профиль.
+
+Команды:
+/start - Начать работу с ботом
+/search_services - Поиск услуг
+/create_service - Создать свою услуг
+/my_profile - Моя анкета-объявление
+/about - Информация о боте
+/cancel - Отменить текущее действие
+"""
+    update.effective_message.reply_text(about_text)
+
+
+
+
+
+
+def start(update: Update, context: CallbackContext):
+    keyboard = [
+        [
+            InlineKeyboardButton("🔍 Поиск услуг", callback_data='search_services'),
+            InlineKeyboardButton("🎁 Создать свою услугу", callback_data='create_service')
+        ],
+        [
+            InlineKeyboardButton("👤 Моя анкета-объявление", callback_data='my_profile'),
+            InlineKeyboardButton("ℹ️ О боте", callback_data='about_bot')
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.effective_message.reply_text("Выберите действие:", reply_markup=reply_markup)
+
+def button(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+    # В зависимости от callback_data добавьте код обработки для каждой функции
+
+def get_services(category: str, city: str):
+    conn = sqlite3.connect('services_bot.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM services WHERE category = ? AND city = ?", (category, city))
+    services = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return services
+
+def search_services(update: Update, context: CallbackContext):
+    # Здесь можно добавить код для выбора категории и города, пока для примера используем фиксированные значения
+    category = "ремонт"
+    city = "Москва"
+
+    services = get_services(category, city)
+    response = ""
+
+    for service in services:
+        response += f"Название: {service[2]}\nОписание: {service[3]}\nГород: {service[4]}\nКатегория: {service[5]}\nКонтакт: {service[6]}\n\n"
+
+    update.message.reply_text(response if response else "Нет услуг, соответствующих выбранным критериям.")
+
+
+
+def categories_keyboard():
+    categories = [
+        'ремонт',
+        'доставка',
+        'чистка',
+        'электрик',
+        'сантехник',
+        'программист',
+        # и так далее
+    ]
+    keyboard = [[InlineKeyboardButton(category, callback_data=f'search_services_category_{category}')] for category in categories]
+    return InlineKeyboardMarkup(keyboard)
+
+def search_services(update: Update, context: CallbackContext):
+    update.message.reply_text('Выберите категорию:', reply_markup=categories_keyboard())
+
+def handle_search_services(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+
+    data = query.data.split('_')
+    action = data[1]
+
+    if action == 'category':
+        category = data[-1]
+        # Здесь вы можете добавить интерактивный выбор города, пока используем фиксированное значение
+        city = 'Москва'
+
+        services = get_services(category, city)
+        response = ""
+
+        for service in services:
+            response += f"Название: {service[2]}\nОписание: {service[3]}\nГород: {service[4]}\nКатегория: {service[5]}\nКонтакт: {service[6]}\n\n"
+
+        query.edit_message_text(response if response else "Нет услуг, соответствующих выбранным критериям.")
+
+
+
+
+
+def main():
+    updater = Updater("YOUR_TELEGRAM_API_TOKEN", use_context=True)
+    dispatcher = updater.dispatcher
+    dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(CallbackQueryHandler(button))
+    updater.start_polling()
+    updater.idle()
+
+
+
+
+
+from telegram import Bot
+
+if __name__ == "__main__":
+    updater = Updater(TOKEN)
+
+    dispatcher = updater.dispatcher
+
+    dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(CommandHandler("search_services", search_services))
+    dispatcher.add_handler(CommandHandler("about", about_bot))
+    dispatcher.add_handler(CommandHandler("my_profile", my_profile))
+    dispatcher.add_handler(CallbackQueryHandler(handle_my_profile, pattern="^my_profile"))
+    dispatcher.add_handler(CallbackQueryHandler(handle_search_services, pattern='^search_services'))
+    dispatcher.add_handler(create_service_handler)
+    updater.start_polling()
+    updater.idle()
