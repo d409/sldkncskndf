@@ -1,229 +1,82 @@
-import telegram
-import logging
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup
-from telegram.ext import (
-    Updater,
-    CommandHandler,
-    CallbackContext,
-    MessageHandler,
-    Filters,
-    ConversationHandler,
-    CallbackQueryHandler,
-)
+@dp.message_handler(lambda message: message.text == "Открыть профиль")
+async def open_profile(message: types.Message):
+    user_id = message.from_user.id
+    user = get_user(user_id)
 
-logging.basicConfig(level=logging.INFO)
-
-CITIES = ["All Cities", "City A", "City B", "City C"]
-SERVICES = ["Service 1", "Service 2", "Service 3"]
-
-(
-    SELECT_ACTION,
-    REGISTER_PHONE,
-    ADD_FEEDBACK,
-    ADD_PORTFOLIO,
-    ADD_BIO,
-    SELECT_CITY,
-    SELECT_SERVICE,
-    VIEW_PROFILE,
-    DELETE_PROFILE,
-) = range(9)
-
-def start(update: Update, context: CallbackContext):
-    reply_markup = InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton("Register", callback_data="register")],
-            [InlineKeyboardButton("Search Services", callback_data="search_services")],
-            [InlineKeyboardButton("View Profile", callback_data="view_profile")],
-            [InlineKeyboardButton("Delete Profile", callback_data="delete_profile")],
-        ]
-    )
-
-    update.message.reply_text(
-        "Welcome to the Service Finder Bot! Choose an action:",
-        reply_markup=reply_markup,
-    )
-
-    return SELECT_ACTION
-
-def select_action(update: Update, context: CallbackContext):
-    query = update.callback_query
-    query.answer()
-
-    if query.data == "register":
-        query.edit_message_text("Let's fill out the questionnaire.")
-        return register(update, context)
-    elif query.data == "search_services":
-        query.edit_message_text("Select a city:")
-        return search_city(update, context)
-    elif query.data == "view_profile":
-        query.edit_message_text("Here is your profile information:")
-        return view_profile(update, context)
-    elif query.data == "delete_profile":
-        query.edit_message_text("Are you sure you want to delete your profile?")
-        return delete_profile(update, context)
-
-def register(update: Update, context: CallbackContext):
-    if "contact_info" in context.user_data:
-        update.effective_message.reply_text("You are already registered!")
-        return
-
-    update.effective_message.reply_text(
-        "Please share your phone number using the 'Share Contact' button.",
-        reply_markup=ReplyKeyboardMarkup(
-            [[telegram.KeyboardButton("Share Contact", request_contact=True)]],
-            one_time_keyboard=True,
-        ),
-    )
-
-    return REGISTER_PHONE
-
-def check_contact(update: Update, context: CallbackContext):
-    contact = update.message.contact
-
-    if contact is not None:
-        context.user_data["contact_info"] = contact.phone_number
-        update.message.reply_text("Thanks for sharing your contact! Please provide your feedback information (Telegram username or phone number):")
-        return ADD_FEEDBACK
+    if user:
+        await message.reply(f"Привет, {user[1]}! Ваша услуга: {user[2]}\nВаш город: {user[3]}\nВаша биография: {user[4]}\nПортфолио: {user[5]}", reply_markup=open_profile_keyboard())
     else:
-        update.message.reply_text("Please share your contact using the 'Share Contact' button.")
-        return REGISTER_PHONE
+        await message.reply("У вас пока нет профиля. Хотите создать объявление?", reply_markup=registration_keyboard())
 
-def add_feedback(update: Update, context: CallbackContext):
-    feedback = update.message.text
-    context.user_data["feedback"] = feedback
-
-    update.message.reply_text("Please provide your portfolio URL/File (optional). If you don't have a portfolio, send /skip:")
-    return ADD_PORTFOLIO
-
-def add_portfolio(update: Update, context: CallbackContext):
-    if update.message.text != "/skip":
-        portfolio = update.message.text
-        context.user_data["portfolio"] = portfolio
-
-    update.message.reply_text("Please provide a biography (optional, up to 200 characters). If you don't have a biography, send /skip:")
-    return ADD_BIO
-
-def add_bio(update: Update, context: CallbackContext):
-    if update.message.text != "/skip":
-        bio = update.message.text
-        context.user_data["bio"] = bio
-
-    update.message.reply_text("Your service has been added!")
-    return ConversationHandler.END
-
-def search_city(update: Update, context: CallbackContext):
-    city_keyboard = [
-        [InlineKeyboardButton(city, callback_data=f"city:{city}") for city in CITIES]
-    ]
-
-    reply_markup = InlineKeyboardMarkup(city_keyboard)
-    context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text="Select a city:",
-        reply_markup=reply_markup,
-    )
-
-    return SELECT_CITY
-
-def search_city_callback(update: Update, context: CallbackContext):
-    query = update.callback_query
-    query.answer()
-
-    city = query.data.split(":")[1]
-    context.user_data["search_city"] = city
-
-    service_keyboard = [
-        [InlineKeyboardButton(service, callback_data=f"service:{service}") for service in SERVICES]
-    ]
-
-    reply_markup = InlineKeyboardMarkup(service_keyboard)
-    context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text="Select a service:",
-        reply_markup=reply_markup,
-    )
-
-    return SELECT_SERVICE
-
-def search_service_callback(update: Update, context: CallbackContext):
-    query = update.callback_query
-    query.answer()
-
-    service = query.data.split(":")[1]
-    context.user_data["search_service"] = service
-
-    update.effective_message.reply_text("Here are the results:")
-
-    return ConversationHandler.END
-
-def view_profile(update: Update, context: CallbackContext):
-    if "contact_info" not in context.user_data:
-        update.effective_message.reply_text("You don't have a registered profile.")
-        return register(update, context)
-
-    profile_text = f"Phone number: {context.user_data['contact_info']}\n"
-    profile_text += f"Feedback: {context.user_data['feedback']}\n"
-    profile_text += f"Portfolio: {context.user_data.get('portfolio', 'N/A')}\n"
-    profile_text += f"Bio: {context.user_data.get('bio', 'N/A')}"
-
-    update.effective_message.reply_text(profile_text)
-
-    return ConversationHandler.END
-
-def delete_profile(update: Update, context: CallbackContext):
-    if "contact_info" not in context.user_data:
-        update.effective_message.reply_text("You don't have a registered profile.")
-        return ConversationHandler.END
-
-    context.user_data.clear()
-    update.effective_message.reply_text("Your profile has been deleted.")
-
-    return ConversationHandler.END
-
-def cancel(update: Update, context: CallbackContext):
-    user = update.message.from_user
-    update.message.reply_text("Operation cancelled.")
-    return ConversationHandler.END
+@dp.message_handler(lambda message: message.text == "Редактировать профиль")
+async def edit_profile(message: types.Message):
+    await message.reply("Введите новое имя и фамилию (или оставьте старые, если не хотите их менять).", reply_markup=back_to_main_menu_keyboard())
+    state = dp.current_state(user=message.from_user.id)
+    await state.next()
 
 
-def main():
-    updater = Updater("5741958407:AAFlowMVLrQM2brVpCMDx9yRNs27sMy3XsE")
+# Continue with the rest of the code from the previous message.
+@dp.message_handler(lambda message: message.text not in ["Вернуться на главную"], state=3)
+async def process_edit_name(message: types.Message, state: FSMContext):
+    async with state.proxy() as data:
+        data['new_name'] = message.text
 
-    dp = updater.dispatcher
-
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            SELECT_ACTION: [
-                CallbackQueryHandler(select_action),
-            ],
-            REGISTER_PHONE: [
-                MessageHandler(Filters.contact, check_contact),
-            ],
-            ADD_FEEDBACK: [
-                MessageHandler(Filters.text, add_feedback),
-            ],
-            ADD_PORTFOLIO: [
-                MessageHandler(Filters.text, add_portfolio),
-            ],
-            ADD_BIO: [
-                MessageHandler(Filters.text, add_bio),
-            ],
-            SELECT_CITY: [
-                CallbackQueryHandler(search_city_callback),
-            ],
-            SELECT_SERVICE: [
-                CallbackQueryHandler(search_service_callback),
-            ],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    )
-
-    dp.add_handler(conv_handler)
-    updater.start_polling()
-    updater.idle()
-    dp.add_handler(CommandHandler("cancel", cancel))
+    await message.reply("Введите новую услугу (или оставьте старую, если не хотите ее менять).", reply_markup=back_to_main_menu_keyboard())
+    state = dp.current_state(user=message.from_user.id)
+    await state.next()
 
 
+@dp.message_handler(lambda message: message.text not in ["Вернуться на главную"], state=4)
+async def process_edit_service(message: types.Message, state: FSMContext):
+    async with state.proxy() as data:
+        data['new_service'] = message.text
+
+    await message.reply("Выберите новый город (или оставьте старый, если не хотите его менять).", reply_markup=cities_keyboard())
+    state = dp.current_state(user=message.from_user.id)
+    await state.next()
+
+
+@dp.callback_query_handler(lambda call: call.data.startswith('city_'), state=5)
+async def process_edit_city(call: types.CallbackQuery, state: FSMContext):
+    city_id = int(call.data[5:])
+    city = cities[city_id]
+
+    async with state.proxy() as data:
+        data['new_city'] = city
+
+    await call.message.reply("Введите новую биографию (или оставьте старую, если не хотите ее менять). Ограничение по символам от 20 до 160.", reply_markup=back_to_main_menu_keyboard())
+    state = dp.current_state(user=message.from_user.id)
+    await state.next()
+
+
+@dp.message_handler(lambda message: message.text not in ["Вернуться на главную"], state=6)
+async def process_edit_bio(message: types.Message, state: FSMContext):
+    async with state.proxy() as data:
+        data['new_bio'] = message.text
+
+    await message.reply("Пожалуйста, предоставьте ссылку на ваше новое портфолио (если есть) или отправьте 'нет', если у вас нет портфолио. (или оставьте старое, если не хотите его менять).", reply_markup=back_to_main_menu_keyboard())
+    state = dp.current_state(user=message.from_user.id)
+    await state.next()
+
+
+@dp.message_handler(lambda message: message.text not in ["Вернуться на главную"], state=7)
+async def process_edit_portfolio(message: types.Message, state: FSMContext):
+    async with state.proxy() as data:
+        data['new_portfolio'] = message.text
+
+        user_id = message.from_user.id
+        new_name = data['new_name']
+        new_service = data['new_service']
+        new_city = data['new_city']
+        new_bio = data['new_bio']
+        new_portfolio = data['new_portfolio']
+
+        update_user(user_id, new_name, new_service, new_city, new_bio, new_portfolio)
+
+    await message.reply("Ваш профиль успешно обновлен! Вы можете просмотреть свой профиль или найти услуги других пользователей.", reply_markup=main_menu_keyboard())
+    await state.finish()
+
+# ... (остальная часть кода)
 if __name__ == "__main__":
-    main()
+    from aiogram import executor
+    executor.start_polling(dp)
