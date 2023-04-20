@@ -245,10 +245,10 @@ def main():
 
 
 
-from telegram import Bot
+
 
 if __name__ == "__main__":
-    updater = Updater(TOKEN)
+    updater = Updater(TOKEN, use_context=True)
 
     dispatcher = updater.dispatcher
 
